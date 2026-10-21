@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "51920781802",
+    "project_id": "nosh-bistro-12aaa",
+    "storage_bucket": "nosh-bistro-12aaa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:51920781802:android:b47286f8700f5012a9f293",
+        "android_client_info": {
+          "package_name": "com.example.nosh_bistro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDbTgZ45tqlWNGvCqrYMJswV3H7SeWpwzk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
