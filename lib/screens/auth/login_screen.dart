@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../admin/admin_home.dart';
 import '../user/user_home.dart';
 import 'signup_screen.dart';
+import '../../services/auth_service.dart';
+import '../../widgets/google_sign_in_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -45,35 +47,128 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text,
       );
 
-      final uid = credential.user!.uid;
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
-
+      final user = credential.user;
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'missing-user',
+          message: 'Firebase did not return a signed-in user.',
+        );
+      }
+      final role = await AuthService.resolveRole(user);
       if (!mounted) return;
 
-      final role = doc.data()?['role'] ?? 'customer';
-      if (role == 'admin') {
-        Navigator.of(
-          context,
-        ).pushReplacement(MaterialPageRoute(builder: (_) => const AdminHome()));
-      } else {
-        Navigator.of(
-          context,
-        ).pushReplacement(MaterialPageRoute(builder: (_) => const UserHome()));
-      }
+      _openHome(role);
     } on FirebaseAuthException catch (e) {
-      setState(() {
-        _errorMessage = _mapError(e.code);
-      });
+      if (mounted) setState(() => _errorMessage = _mapError(e.code));
     } on FirebaseException catch (e) {
-      setState(() {
-        _errorMessage =
-            'Could not load your account details. Please try again. (${e.code})';
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage =
+              'Could not load your account details. Check your connection and try again. (${e.code})';
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final role = await AuthService.signInWithGoogle();
+      if (mounted) _openHome(role);
+    } on GoogleSignInException catch (error) {
+      if (mounted && error.code != GoogleSignInExceptionCode.canceled) {
+        setState(() {
+          _errorMessage = error.description ?? 'Google sign-in failed.';
+        });
+      }
+    } on FirebaseAuthException catch (error) {
+      if (mounted) setState(() => _errorMessage = _mapError(error.code));
+    } on FirebaseException catch (error) {
+      if (mounted) {
+        setState(() {
+          _errorMessage =
+              'Could not load your account details. Check your connection and try again. (${error.code})';
+        });
+      }
+    } on UnsupportedError catch (error) {
+      if (mounted) setState(() => _errorMessage = error.message);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _openHome(String role) {
+    final Widget home = role == 'admin' ? const AdminHome() : const UserHome();
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute<void>(builder: (_) => home));
+  }
+
+  Future<void> _sendPasswordReset() async {
+    final emailController = TextEditingController(
+      text: _emailController.text.trim(),
+    );
+    final email = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset password'),
+        content: TextField(
+          controller: emailController,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(labelText: 'Email address'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(context).pop(emailController.text.trim()),
+            child: const Text('Send link'),
+          ),
+        ],
+      ),
+    );
+    emailController.dispose();
+    if (email == null || email.isEmpty || !mounted) return;
+
+    try {
+      await AuthService.sendPasswordReset(email);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password reset email sent.')),
+      );
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_mapResetError(error.code))));
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not send the reset email. (${error.code})'),
+        ),
+      );
+    }
+  }
+
+  String _mapResetError(String code) {
+    switch (code) {
+      case 'invalid-email':
+        return 'Enter a valid email address.';
+      case 'user-not-found':
+        return 'No account found for this email.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please try again later.';
+      default:
+        return 'Could not send the reset email. Please try again.';
     }
   }
 
@@ -88,6 +183,12 @@ class _LoginScreenState extends State<LoginScreen> {
         return 'This account has been disabled.';
       case 'too-many-requests':
         return 'Too many attempts. Please try again later.';
+      case 'account-exists-with-different-credential':
+        return 'This email uses another sign-in method. Sign in with that method first.';
+      case 'operation-not-allowed':
+        return 'This sign-in method is not enabled for this app.';
+      case 'missing-google-id-token':
+        return 'Google sign-in is not configured for this app yet.';
       default:
         return 'Login failed. Please try again.';
     }
@@ -204,7 +305,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: () {},
+                          onPressed: _isLoading ? null : _sendPasswordReset,
                           child: const Text(
                             'Forgot Password?',
                             style: TextStyle(
@@ -239,6 +340,29 @@ class _LoginScreenState extends State<LoginScreen> {
                       _buildPrimaryButton(
                         label: 'Login',
                         onPressed: _isLoading ? null : _login,
+                        isLoading: _isLoading,
+                      ),
+                      const SizedBox(height: 14),
+                      const Row(
+                        children: [
+                          Expanded(child: Divider(color: Colors.white24)),
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              'OR',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          Expanded(child: Divider(color: Colors.white24)),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      GoogleSignInButton(
+                        onPressed: _isLoading ? null : _signInWithGoogle,
                         isLoading: _isLoading,
                       ),
                     ],

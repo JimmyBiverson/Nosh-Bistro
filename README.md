@@ -51,7 +51,7 @@ flame-orange accents, rounded cards, and food photography.
 ## Technology and project structure
 
 - **Flutter / Dart** provides the cross-platform UI.
-- **Firebase Authentication** handles email/password sessions.
+- **Firebase Authentication** handles email/password and Google sessions.
 - **Cloud Firestore** stores user profiles and customer orders.
 - **Material 3** is themed centrally in `lib/theme/nosh_theme.dart`.
 - `lib/models/menu_item.dart` contains the sample menu model and catalog.
@@ -70,46 +70,68 @@ flame-orange accents, rounded cards, and food photography.
 - Flutter SDK with Dart `^3.11.1` or compatible.
 - A Firebase project with Email/Password Authentication and Cloud Firestore
   enabled.
+- Google as an enabled Firebase Authentication provider for Google sign-in.
 - A Firebase Android app whose registered package ID matches the app's Android
   `applicationId`.
 - Firebase platform configuration for each platform you intend to run.
 
 ## Firebase setup
 
-The app initializes Firebase in `lib/main.dart`. After running
-`flutterfire configure`, import the generated `firebase_options.dart` and pass
-`DefaultFirebaseOptions.currentPlatform` to `Firebase.initializeApp(options: ...)`.
-Generating the options file alone does not activate it.
+Firebase is initialized in `lib/main.dart` using the generated
+`lib/firebase_options.dart`. Run `flutterfire configure` after adding or
+changing Firebase apps/platforms. If Firebase cannot initialize, the app opens
+a setup screen with the configuration command instead of remaining blank.
 
-If Firebase cannot initialize, the app now opens a setup screen instead of
-remaining blank. Flutter Web requires generated Firebase options; until those
-options are wired into `main.dart`, the app will continue to show the setup
-screen. The Android configuration also needs to match the app ID before that
-platform can build.
+### Enable and configure sign-in
 
-The checked-in Android Firebase client is registered as
-`com.example.nosh_bistro`, but `android/app/build.gradle.kts` sets the Android
-`applicationId` to `com.restaurant.nosh_bistro`. These identifiers must match:
-as currently configured, the Android Gradle Google Services task fails with
-“No matching client found.” Register `com.restaurant.nosh_bistro` as an Android
-app in the intended Firebase project, download its updated
-`google-services.json` to `android/app/google-services.json`, and use
-`flutterfire configure` to set up the other target platforms. Do not change the
-application ID without considering the app's install identity and release
-history.
+1. In Firebase Console, enable **Email/Password** and **Google** under
+   **Authentication → Sign-in method**. Add the deployed web origins to
+   **Authentication → Settings → Authorized domains**.
+2. For Android, register the app's exact `applicationId` in Firebase, add the
+   signing certificate SHA-1 and SHA-256 fingerprints (debug and release) to
+   that Firebase Android app, then download the refreshed
+   `google-services.json` to `android/app/google-services.json`. Google sign-in
+   requires the generated OAuth client configuration; the Android Firebase
+   configuration currently in this checkout has no OAuth clients, so Android
+   Google sign-in will not work until it is regenerated after Google is
+   enabled and the signing fingerprints are registered.
+3. For iOS and macOS, register each bundle ID in Firebase and add the
+   platform's `GoogleService-Info.plist` and required reversed-client-ID URL
+   scheme as described by the Google Sign-In plugin's platform setup guide.
+   Re-run `flutterfire configure` for Firebase app options.
+4. For web, configure the Firebase web app and its authorized domain. The app
+   uses Firebase Auth's Google popup on web; Android/iOS/macOS use the native
+   Google Sign-In flow.
+5. Restart the app and test both a new customer account and an existing
+   account. Authentication providers must also be enabled in any Firebase
+   emulator/project used for testing.
+
+Google sign-in is available from both the sign-in and sign-up screens. Google
+accounts without a `users/{uid}` profile are given a customer profile on first
+sign-in. Existing profile roles are retained, so an authorized admin who signs
+in with Google is routed to the admin dashboard. Email/password accounts use
+the same role lookup. The **Forgot Password?** action sends a Firebase reset
+email.
 
 ### Authentication and roles
 
-- Successful customer sign-up creates a Firebase Authentication account and a
-  `users/{uid}` Firestore document containing `email`, `role: "customer"`, and
-  `createdAt`.
+- Successful email or Google customer sign-up creates a Firebase
+  Authentication account and a `users/{uid}` Firestore document with the
+  user's email, customer role, and creation timestamp.
 - Public sign-up intentionally does not offer admin account creation.
 - At sign-in, the app reads `users/{uid}.role`; `admin` opens the restaurant
-  dashboard and other values open the customer app.
+  dashboard and other values open the customer app. Missing profile documents
+  are initialized as customer profiles. Firestore errors are shown rather than
+  silently granting customer access.
 - Grant admin access only through a trusted administrative process. A role
   stored in a client-readable profile is not, by itself, a secure authorization
   boundary. Enforce staff access in Firestore Security Rules or a trusted
-  backend.
+  backend. Never let public sign-up set the admin role.
+
+Firestore Security Rules must allow a signed-in user to read and create their
+own `users/{uid}` profile while preventing users from changing their role.
+Configure and test rules before using real accounts; there is no rules file in
+this repository.
 
 ### Firestore order data
 
@@ -163,8 +185,8 @@ Run on web with:
 flutter run -d chrome
 ```
 
-Firebase must be configured for the selected platform. The Android package ID
-mismatch above must be fixed before an Android build can succeed.
+Firebase must be configured for the selected platform. Complete the provider
+and OAuth setup above before expecting Google sign-in to work.
 
 ## Verify changes
 
@@ -174,14 +196,18 @@ flutter analyze
 flutter test
 ```
 
-The test suite covers cart totals/removal and adding a dish from the menu.
+The test suite covers cart totals/removal, adding a dish from the menu, Firebase
+startup configuration messaging, and the email/Google options on both auth
+screens.
 
 ## Build status and production checklist
 
 - `flutter analyze`, `flutter test`, and `flutter build web --no-pub` have passed
   in the development environment.
-- `flutter build apk --debug` currently fails because the Firebase Android
-  client package ID does not match `applicationId`.
+- `flutter build apk --debug --no-pub` has passed. The Android Kotlin plugin
+  uses version 2.4.21 to match the Firebase Auth Android library metadata.
+- Live Google authentication still requires enabling Google in Firebase and
+  adding the platform OAuth configuration described above.
 - Configure Firebase platform options and production Firestore rules/indexes.
 - Persist the menu and admin availability changes in Firestore or another
   authorized backend.

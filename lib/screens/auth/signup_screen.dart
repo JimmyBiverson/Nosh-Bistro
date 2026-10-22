@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import '../../services/auth_service.dart';
+import '../../widgets/google_sign_in_button.dart';
+import '../admin/admin_home.dart';
 import '../user/user_home.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -51,22 +54,20 @@ class _SignupScreenState extends State<SignupScreen> {
             password: _passwordController.text,
           );
 
-      final uid = credential.user!.uid;
-
-      // Write Firestore user document
-      await FirebaseFirestore.instance.collection('users').doc(uid).set({
-        'email': _emailController.text.trim(),
-        'role': 'customer',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      final user = credential.user;
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'missing-user',
+          message: 'Firebase did not return a signed-in user.',
+        );
+      }
+      await AuthService.resolveRole(user);
 
       if (!mounted) return;
 
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const UserHome()),
-        (_) => false,
-      );
+      _openHome('customer');
     } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
       setState(() {
         switch (e.code) {
           case 'email-already-in-use':
@@ -76,10 +77,11 @@ class _SignupScreenState extends State<SignupScreen> {
             _errorMessage = 'Password is too weak. Use at least 6 characters.';
             break;
           default:
-            _errorMessage = 'Sign up failed. ${e.message}';
+            _errorMessage = 'Sign up failed. ${e.message ?? e.code}';
         }
       });
     } on FirebaseException catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage =
             'Your account was created, but its profile could not be saved. Please sign in again. (${e.code})';
@@ -87,6 +89,56 @@ class _SignupScreenState extends State<SignupScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _signUpWithGoogle() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final role = await AuthService.signInWithGoogle();
+      if (mounted) _openHome(role);
+    } on GoogleSignInException catch (error) {
+      if (mounted && error.code != GoogleSignInExceptionCode.canceled) {
+        setState(() {
+          _errorMessage = error.description ?? 'Google sign-in failed.';
+        });
+      }
+    } on FirebaseAuthException catch (error) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = switch (error.code) {
+            'account-exists-with-different-credential' =>
+              'This email uses another sign-in method. Sign in with that method first.',
+            'operation-not-allowed' =>
+              'Google sign-in is not enabled for this app.',
+            'missing-google-id-token' =>
+              'Google sign-in is not configured for this app yet.',
+            _ => 'Google sign-in failed. ${error.message ?? error.code}',
+          };
+        });
+      }
+    } on FirebaseException catch (error) {
+      if (mounted) {
+        setState(() {
+          _errorMessage =
+              'Could not load your account details. Check your connection and try again. (${error.code})';
+        });
+      }
+    } on UnsupportedError catch (error) {
+      if (mounted) setState(() => _errorMessage = error.message);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _openHome(String role) {
+    final Widget home = role == 'admin' ? const AdminHome() : const UserHome();
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => home),
+      (_) => false,
+    );
   }
 
   @override
@@ -230,6 +282,29 @@ class _SignupScreenState extends State<SignupScreen> {
                       _buildPrimaryButton(
                         label: 'Create Account',
                         onPressed: _isLoading ? null : _signUp,
+                        isLoading: _isLoading,
+                      ),
+                      const SizedBox(height: 14),
+                      const Row(
+                        children: [
+                          Expanded(child: Divider(color: Colors.white24)),
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              'OR',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          Expanded(child: Divider(color: Colors.white24)),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      GoogleSignInButton(
+                        onPressed: _isLoading ? null : _signUpWithGoogle,
                         isLoading: _isLoading,
                       ),
                     ],

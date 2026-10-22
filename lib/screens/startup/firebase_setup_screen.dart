@@ -82,11 +82,11 @@ class FirebaseSetupScreen extends StatelessWidget {
                         ),
                         SizedBox(height: 12),
                         Text(
-                          'Select your Firebase project and platforms. Then '
-                          'update main.dart to pass '
-                          'DefaultFirebaseOptions.currentPlatform to '
-                          'Firebase.initializeApp, and restart with '
-                          '`flutter run`.',
+                          'Select your Firebase project and platforms to '
+                          'regenerate the platform options. Firebase is '
+                          'initialized from the generated options in '
+                          'main.dart. Restart the app with `flutter run` '
+                          'when configuration is complete.',
                           style: TextStyle(color: NoshTheme.muted, height: 1.5),
                         ),
                       ],

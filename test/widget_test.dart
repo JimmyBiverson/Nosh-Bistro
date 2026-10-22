@@ -10,6 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:nosh_bistro/models/menu_item.dart';
 import 'package:nosh_bistro/main.dart';
+import 'package:nosh_bistro/screens/auth/login_screen.dart';
+import 'package:nosh_bistro/screens/auth/signup_screen.dart';
 import 'package:nosh_bistro/screens/user/commerce_screens.dart';
 import 'package:nosh_bistro/state/order_cart.dart';
 
@@ -67,9 +69,32 @@ void main() {
       expect(find.text('Firebase Web options are missing.'), findsOneWidget);
       expect(find.text('flutterfire configure'), findsOneWidget);
       expect(
-        find.textContaining('DefaultFirebaseOptions.currentPlatform'),
+        find.textContaining('generated options in main.dart'),
         findsOneWidget,
       );
     },
   );
+
+  testWidgets('sign-in screen offers email and Google authentication', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+
+    expect(find.text('Email Address'), findsOneWidget);
+    expect(find.text('Password'), findsOneWidget);
+    expect(find.text('Login'), findsOneWidget);
+    expect(find.text('Continue with Google'), findsOneWidget);
+    expect(find.text('Forgot Password?'), findsOneWidget);
+  });
+
+  testWidgets('sign-up screen offers email and Google account creation', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
+
+    expect(find.text('Email Address'), findsOneWidget);
+    expect(find.text('Confirm Password'), findsOneWidget);
+    expect(find.text('Create Account'), findsNWidgets(2));
+    expect(find.text('Continue with Google'), findsOneWidget);
+  });
 }
