@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:flutter/material.dart';
 import 'package:nosh_bistro/models/menu_item.dart';
+import 'package:nosh_bistro/main.dart';
 import 'package:nosh_bistro/screens/user/commerce_screens.dart';
 import 'package:nosh_bistro/state/order_cart.dart';
 
@@ -48,4 +49,23 @@ void main() {
     expect(orderCart.lines.single.item.name, 'Wood-fired Margherita');
     orderCart.clear();
   });
+
+  testWidgets(
+    'Firebase startup errors show setup instructions, not a blank app',
+    (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const NoshBistroApp(
+          startupErrorMessage: 'Firebase Web options are missing.',
+        ),
+      );
+
+      expect(find.text('Nosh Bistro'), findsOneWidget);
+      expect(
+        find.text('One setup step before the app can open'),
+        findsOneWidget,
+      );
+      expect(find.text('Firebase Web options are missing.'), findsOneWidget);
+      expect(find.text('flutterfire configure'), findsOneWidget);
+    },
+  );
 }

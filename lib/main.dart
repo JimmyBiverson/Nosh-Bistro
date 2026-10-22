@@ -2,26 +2,41 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/admin/admin_home.dart';
 import 'screens/user/user_home.dart';
 import 'screens/splash/splash_screen.dart';
+import 'screens/startup/firebase_setup_screen.dart';
 import 'theme/nosh_theme.dart';
 
 /// Entry point — initialises Firebase then runs the app.
-/// Do NOT remove or modify the Firebase.initializeApp() call.
-/// Run `flutterfire configure` to generate firebase_options.dart,
-/// then uncomment the options parameter below.
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    // options: DefaultFirebaseOptions.currentPlatform, // uncomment after flutterfire configure
-  );
-  runApp(const NoshBistroApp());
+  String? startupError;
+  try {
+    await Firebase.initializeApp();
+  } catch (error, stackTrace) {
+    startupError = _firebaseStartupMessage(error);
+    debugPrint('Firebase initialization failed: $error\n$stackTrace');
+  }
+  runApp(NoshBistroApp(startupErrorMessage: startupError));
+}
+
+String _firebaseStartupMessage(Object error) {
+  if (kIsWeb && error is AssertionError) {
+    return 'Firebase Web options are missing. Register a Web app in your '
+        'Firebase project and run `flutterfire configure` to generate '
+        'firebase_options.dart.';
+  }
+  return 'Firebase could not be initialized on this device. Check the '
+      'platform configuration and run `flutterfire configure`.';
 }
 
 class NoshBistroApp extends StatelessWidget {
-  const NoshBistroApp({super.key});
+  const NoshBistroApp({super.key, this.startupErrorMessage});
+
+  final String? startupErrorMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +44,9 @@ class NoshBistroApp extends StatelessWidget {
       title: 'Nosh Bistro',
       debugShowCheckedModeBanner: false,
       theme: NoshTheme.theme,
-      home: const SplashScreen(),
+      home: startupErrorMessage == null
+          ? const SplashScreen()
+          : FirebaseSetupScreen(message: startupErrorMessage!),
     );
   }
 }

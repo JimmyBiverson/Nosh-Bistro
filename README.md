@@ -79,6 +79,10 @@ flame-orange accents, rounded cards, and food photography.
 The app initializes Firebase in `lib/main.dart` with
 `Firebase.initializeApp()`.
 
+If Firebase cannot initialize, the app now opens a setup screen instead of
+remaining blank. Flutter Web requires generated Firebase options; the Android
+configuration also needs to match the app ID before that platform can build.
+
 The checked-in Android Firebase client is registered as
 `com.example.nosh_bistro`, but `android/app/build.gradle.kts` sets the Android
 `applicationId` to `com.restaurant.nosh_bistro`. These identifiers must match:
