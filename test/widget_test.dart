@@ -66,6 +66,10 @@ void main() {
       );
       expect(find.text('Firebase Web options are missing.'), findsOneWidget);
       expect(find.text('flutterfire configure'), findsOneWidget);
+      expect(
+        find.textContaining('DefaultFirebaseOptions.currentPlatform'),
+        findsOneWidget,
+      );
     },
   );
 }

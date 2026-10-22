@@ -76,12 +76,16 @@ flame-orange accents, rounded cards, and food photography.
 
 ## Firebase setup
 
-The app initializes Firebase in `lib/main.dart` with
-`Firebase.initializeApp()`.
+The app initializes Firebase in `lib/main.dart`. After running
+`flutterfire configure`, import the generated `firebase_options.dart` and pass
+`DefaultFirebaseOptions.currentPlatform` to `Firebase.initializeApp(options: ...)`.
+Generating the options file alone does not activate it.
 
 If Firebase cannot initialize, the app now opens a setup screen instead of
-remaining blank. Flutter Web requires generated Firebase options; the Android
-configuration also needs to match the app ID before that platform can build.
+remaining blank. Flutter Web requires generated Firebase options; until those
+options are wired into `main.dart`, the app will continue to show the setup
+screen. The Android configuration also needs to match the app ID before that
+platform can build.
 
 The checked-in Android Firebase client is registered as
 `com.example.nosh_bistro`, but `android/app/build.gradle.kts` sets the Android
