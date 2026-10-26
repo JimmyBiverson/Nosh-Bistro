@@ -27,16 +27,29 @@ flame-orange accents, rounded cards, and food photography.
 - Dashboard with recent orders and order totals from Firestore.
 - Order actions to advance tickets through `Pending`, `Preparing`,
   `Ready for pickup`, and `Delivered`.
-- Menu screen with category filtering, search, availability switches, and an
-  add-dish form.
+- Persistent menu management: add, edit, and delete dishes, including their
+  descriptions, categories, prices, photos, popularity, and availability.
+- Store settings for app and restaurant names, customer-facing copy and imagery,
+  contact details, business hours, delivery estimates, ordering availability,
+  delivery pricing, tax, and theme colors.
+- Customer account profile editing and live customer/admin role management.
 - Analytics screen with a seven-day revenue chart and top dishes calculated
   from recent Firestore order documents.
 
 ### Important feature boundaries
 
-- The catalog in `lib/models/menu_item.dart` is sample data. Menu additions and
-  availability changes in `lib/state/menu_catalog.dart` are held in memory and
-  reset when the app process restarts; they are not written to Firestore.
+- Built-in dishes provide the initial catalog; admin edits, additions,
+  availability, and deletions are stored in Firestore and update customer
+  screens live. The current app accepts public HTTPS image URLs; it does not
+  upload image files.
+- The admin-controlled logo is shown inside the app and updates the browser
+  favicon for active web sessions. Android/iOS launcher icons are packaged
+  build assets and cannot be changed on already-installed apps from the admin
+  screen. Replace those assets and rebuild/redeploy to change them.
+- Account management edits a user's display name, phone, and app role. Account
+  deletion, disabling sign-in, changing email credentials, and password resets
+  for other users require a trusted Firebase Admin SDK backend and are not
+  exposed to the client app.
 - Checkout's card and cash choices are presentation only. The app does not
   process payments, tokenize cards, or confirm payment with a payment provider.
 - Delivery addresses and phone numbers are saved with each order. The current
@@ -52,12 +65,15 @@ flame-orange accents, rounded cards, and food photography.
 
 - **Flutter / Dart** provides the cross-platform UI.
 - **Firebase Authentication** handles email/password and Google sessions.
-- **Cloud Firestore** stores user profiles and customer orders.
+- **Cloud Firestore** stores user profiles, customer orders, menu overrides,
+  and shared restaurant settings.
 - **Material 3** is themed centrally in `lib/theme/nosh_theme.dart`.
 - `lib/models/menu_item.dart` contains the sample menu model and catalog.
 - `lib/state/order_cart.dart` manages cart contents and computes the subtotal,
   delivery fee, tax, and total.
-- `lib/state/menu_catalog.dart` manages the in-memory menu state.
+- `lib/state/menu_catalog.dart` merges the built-in menu with live Firestore
+  changes.
+- `lib/services/store_settings.dart` streams shared store settings to the app.
 - `lib/screens/auth/` contains sign-in and sign-up.
 - `lib/screens/user/` contains customer navigation, discovery, menu, cart,
   checkout, tracking, history, and profile.
@@ -123,15 +139,23 @@ email.
   dashboard and other values open the customer app. Missing profile documents
   are initialized as customer profiles. Firestore errors are shown rather than
   silently granting customer access.
-- Grant admin access only through a trusted administrative process. A role
-  stored in a client-readable profile is not, by itself, a secure authorization
-  boundary. Enforce staff access in Firestore Security Rules or a trusted
-  backend. Never let public sign-up set the admin role.
+-   Grant the first admin role only through Firebase Console or another trusted
+  administrative process. Before releasing, deploy and verify the included
+  `firestore.rules`:
 
-Firestore Security Rules must allow a signed-in user to read and create their
-own `users/{uid}` profile while preventing users from changing their role.
-Configure and test rules before using real accounts; there is no rules file in
-this repository.
+  ```powershell
+  firebase deploy --only firestore:rules
+  ```
+
+  The rules allow the public app to read menu/store settings, but restrict
+  changes to admins. Customers can read their own profiles and orders but cannot
+  grant themselves admin access, alter order ownership/totals, or change another
+  user's profile. Admin profile/role edits and order status changes are also
+  checked by the rules; the signed-in app listens for role changes. The rules
+  validate order shape and prevent edits after creation, but prices and totals
+  are still calculated by the client. Add a trusted checkout backend before
+  accepting real payments or relying on sales totals. Never deploy permissive
+  rules or allow public sign-up to set an admin role.
 
 ### Firestore order data
 
@@ -149,8 +173,8 @@ the following fields:
 | `paymentMethod` | Selected payment-method label; no payment is processed |
 | `items` | Snapshot list of item `id`, `name`, `price`, and `quantity` |
 | `subtotal` | Sum of item prices multiplied by quantities |
-| `deliveryFee` | $3.50 below a $35 subtotal; otherwise free |
-| `tax` | 8% of the subtotal |
+| `deliveryFee` | Admin-configured fee below the free-delivery minimum |
+| `tax` | Admin-configured percentage of the subtotal |
 | `total` | Subtotal plus delivery fee and tax |
 
 Customer order queries filter by `userId` and sort by `createdAt`. Admin order
@@ -167,8 +191,21 @@ Before handling real customer data, configure and test Firestore rules so that:
 - Users cannot assign themselves the admin role or alter protected order totals
   and ownership fields.
 
-Do not deploy permissive test rules to production. There is no Firestore rules
-file or index definition included in this repository.
+Do not deploy permissive test rules to production. Firestore rules are included
+in `firestore.rules`; the query indexes, if requested by Firebase, must still
+be created using the error-provided index link.
+
+### Admin store controls
+
+The admin **Settings** tab publishes shared settings to
+`store_settings/public`; customer pages listen for updates in real time. The
+**Menu** tab edits documents in `menu`, retaining the built-in sample dishes
+unless an admin explicitly deletes or overrides them. The **Accounts** tab can
+update customer display names, phone numbers, and roles. A trusted admin must
+bootstrap the first `users/{uid}` profile with `role: "admin"` before using
+these controls. The web favicon follows the configured logo URL in active sessions. Native
+launcher icon changes require replacing packaged assets and building a new
+release.
 
 ## Run locally
 
@@ -209,8 +246,11 @@ screens.
 - Live Google authentication still requires enabling Google in Firebase and
   adding the platform OAuth configuration described above.
 - Configure Firebase platform options and production Firestore rules/indexes.
-- Persist the menu and admin availability changes in Firestore or another
-  authorized backend.
+- Deploy and test `firestore.rules` using the production Firebase project.
+- Configure Firebase Storage or another trusted upload service if admins need
+  image uploads instead of public image URLs.
+- Replace packaged launcher and favicon assets and rebuild to change installed
+  app icons.
 - Integrate a payment provider before treating card selection as payment.
 - Review privacy, address retention, accessibility, remote image handling,
   order lifecycle, and error states before production release.

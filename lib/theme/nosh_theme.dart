@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/store_settings.dart';
+
 abstract final class NoshTheme {
   static const background = Color(0xFF1C110A);
   static const surface = Color(0xFF291D15);
@@ -14,11 +16,14 @@ abstract final class NoshTheme {
   static const error = Color(0xFFFFB4AB);
 
   static ThemeData get theme {
-    const scheme = ColorScheme(
+    final primary = Color(StoreSettings.instance.primaryColor);
+    final scheme = ColorScheme(
       brightness: Brightness.dark,
       primary: primary,
-      onPrimary: Color(0xFF341100),
-      secondary: Color(0xFFFFB59A),
+      onPrimary: primary.computeLuminance() > 0.45
+          ? const Color(0xFF160C06)
+          : Colors.white,
+      secondary: Color.lerp(primary, Colors.white, 0.42)!,
       onSecondary: Color(0xFF5B1B00),
       error: Color(0xFFFFB4AB),
       onError: Color(0xFF690005),
@@ -34,10 +39,10 @@ abstract final class NoshTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: background,
+      scaffoldBackgroundColor: Color(StoreSettings.instance.backgroundColor),
       fontFamily: 'Plus Jakarta Sans',
-      appBarTheme: const AppBarTheme(
-        backgroundColor: background,
+      appBarTheme: AppBarTheme(
+        backgroundColor: Color(StoreSettings.instance.backgroundColor),
         foregroundColor: text,
         elevation: 0,
         centerTitle: false,
@@ -57,7 +62,7 @@ abstract final class NoshTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: primary, width: 1.5),
+          borderSide: BorderSide(color: primary, width: 1.5),
         ),
       ),
       snackBarTheme: SnackBarThemeData(

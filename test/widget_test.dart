@@ -14,6 +14,7 @@ import 'package:nosh_bistro/screens/auth/login_screen.dart';
 import 'package:nosh_bistro/screens/auth/signup_screen.dart';
 import 'package:nosh_bistro/screens/user/commerce_screens.dart';
 import 'package:nosh_bistro/state/order_cart.dart';
+import 'package:nosh_bistro/services/store_settings.dart';
 
 void main() {
   test('cart totals include delivery and tax and remove empty lines', () {
@@ -32,6 +33,55 @@ void main() {
 
     expect(cart.isEmpty, isTrue);
     expect(cart.total, 0);
+  });
+
+  test('cart pricing uses the current store delivery and tax settings', () {
+    final settings = StoreSettings.instance;
+    final originalFee = settings.deliveryFee;
+    final originalThreshold = settings.freeDeliveryThreshold;
+    final originalTaxRate = settings.taxRate;
+    final cart = OrderCart();
+    final item = MenuItem.samples.first;
+
+    try {
+      settings.deliveryFee = 6;
+      settings.freeDeliveryThreshold = 100;
+      settings.taxRate = 0.1;
+      cart.add(item);
+
+      expect(cart.deliveryFee, 6);
+      expect(cart.tax, closeTo(item.price * 0.1, 0.001));
+
+      settings.freeDeliveryThreshold = 10;
+      expect(cart.deliveryFee, 0);
+    } finally {
+      cart.clear();
+      settings.deliveryFee = originalFee;
+      settings.freeDeliveryThreshold = originalThreshold;
+      settings.taxRate = originalTaxRate;
+    }
+  });
+
+  test('menu items preserve editable product fields', () {
+    final original = MenuItem.samples.first;
+    final edited = original.copyWith(
+      name: 'Updated pizza',
+      description: 'Updated ingredients',
+      category: 'Specials',
+      price: 24,
+      imageUrl: 'https://example.com/pizza.jpg',
+      isPopular: false,
+      isAvailable: false,
+    );
+    final restored = MenuItem.fromFirestore(original.id, edited.toFirestore());
+
+    expect(restored.name, 'Updated pizza');
+    expect(restored.description, 'Updated ingredients');
+    expect(restored.category, 'Specials');
+    expect(restored.price, 24);
+    expect(restored.imageUrl, 'https://example.com/pizza.jpg');
+    expect(restored.isPopular, isFalse);
+    expect(restored.isAvailable, isFalse);
   });
 
   testWidgets('menu presents dishes and adds selected items to the cart', (

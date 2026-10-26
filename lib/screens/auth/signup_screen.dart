@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../../services/auth_service.dart';
+import '../../services/store_settings.dart';
 import '../../widgets/google_sign_in_button.dart';
-import '../admin/admin_home.dart';
-import '../user/user_home.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -23,11 +22,23 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _obscureConfirm = true;
   String? _errorMessage;
 
-  static const _orange = Color(0xFFFF6D00);
-  static const _surface = Color(0xFF1C110A);
   static const _card = Color(0xFF291D15);
+
+  Color get _accentColor => Color(StoreSettings.instance.primaryColor);
+
+  @override
+  void initState() {
+    super.initState();
+    StoreSettings.instance.addListener(_refreshBranding);
+  }
+
+  void _refreshBranding() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    StoreSettings.instance.removeListener(_refreshBranding);
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
@@ -65,7 +76,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
       if (!mounted) return;
 
-      _openHome('customer');
+      _returnToAuthGate();
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -97,8 +108,8 @@ class _SignupScreenState extends State<SignupScreen> {
       _errorMessage = null;
     });
     try {
-      final role = await AuthService.signInWithGoogle();
-      if (mounted) _openHome(role);
+      await AuthService.signInWithGoogle();
+      if (mounted) _returnToAuthGate();
     } on GoogleSignInException catch (error) {
       if (mounted && error.code != GoogleSignInExceptionCode.canceled) {
         setState(() {
@@ -133,20 +144,16 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
-  void _openHome(String role) {
-    final Widget home = role == 'admin' ? const AdminHome() : const UserHome();
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => home),
-      (_) => false,
-    );
+  void _returnToAuthGate() {
+    Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _surface,
+      backgroundColor: Color(StoreSettings.instance.backgroundColor),
       appBar: AppBar(
-        backgroundColor: _surface,
+        backgroundColor: Color(StoreSettings.instance.backgroundColor),
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
@@ -162,14 +169,9 @@ class _SignupScreenState extends State<SignupScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(
-                      Icons.local_fire_department,
-                      color: _orange,
-                      size: 28,
-                    ),
+                    StoreBrandLogo(size: 28, color: _accentColor),
                     const SizedBox(width: 8),
-                    Text(
-                      'Nosh Bistro',
+                    StoreBrandName(
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
@@ -185,10 +187,12 @@ class _SignupScreenState extends State<SignupScreen> {
                   decoration: BoxDecoration(
                     color: _card,
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: _orange.withValues(alpha: 0.15)),
+                    border: Border.all(
+                      color: _accentColor.withValues(alpha: 0.15),
+                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: _orange.withValues(alpha: 0.08),
+                        color: _accentColor.withValues(alpha: 0.08),
                         blurRadius: 32,
                         offset: const Offset(0, 8),
                       ),
@@ -206,8 +210,9 @@ class _SignupScreenState extends State<SignupScreen> {
                             ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        'Join Nosh Bistro today',
+                      StoreBrandName(
+                        prefix: 'Join ',
+                        suffix: ' today',
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.5),
                           fontSize: 14,
@@ -325,10 +330,10 @@ class _SignupScreenState extends State<SignupScreen> {
                     ),
                     GestureDetector(
                       onTap: () => Navigator.of(context).pop(),
-                      child: const Text(
+                      child: Text(
                         'Log In',
                         style: TextStyle(
-                          color: _orange,
+                          color: _accentColor,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -387,7 +392,7 @@ class _SignupScreenState extends State<SignupScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(99),
-          borderSide: const BorderSide(color: _orange, width: 1.5),
+          borderSide: BorderSide(color: _accentColor, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(99),
@@ -415,7 +420,7 @@ class _SignupScreenState extends State<SignupScreen> {
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: _orange,
+          backgroundColor: _accentColor,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(99),

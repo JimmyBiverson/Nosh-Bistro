@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class MenuItem {
   const MenuItem({
     required this.id,
@@ -21,17 +23,52 @@ class MenuItem {
   final bool isPopular;
   final bool isAvailable;
 
-  MenuItem copyWith({bool? isAvailable}) => MenuItem(
+  MenuItem copyWith({
+    String? name,
+    String? description,
+    String? category,
+    double? price,
+    String? imageUrl,
+    double? rating,
+    bool? isPopular,
+    bool? isAvailable,
+  }) => MenuItem(
     id: id,
-    name: name,
-    description: description,
-    category: category,
-    price: price,
-    imageUrl: imageUrl,
-    rating: rating,
-    isPopular: isPopular,
+    name: name ?? this.name,
+    description: description ?? this.description,
+    category: category ?? this.category,
+    price: price ?? this.price,
+    imageUrl: imageUrl ?? this.imageUrl,
+    rating: rating ?? this.rating,
+    isPopular: isPopular ?? this.isPopular,
     isAvailable: isAvailable ?? this.isAvailable,
   );
+
+  Map<String, Object?> toFirestore() => {
+    'name': name,
+    'description': description,
+    'category': category,
+    'price': price,
+    'imageUrl': imageUrl,
+    'rating': rating,
+    'isPopular': isPopular,
+    'isAvailable': isAvailable,
+    'deleted': false,
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+
+  factory MenuItem.fromFirestore(String id, Map<String, dynamic> data) =>
+      MenuItem(
+        id: id,
+        name: data['name']?.toString() ?? 'Untitled dish',
+        description: data['description']?.toString() ?? '',
+        category: data['category']?.toString() ?? 'Other',
+        price: (data['price'] as num?)?.toDouble() ?? 0,
+        imageUrl: data['imageUrl']?.toString() ?? '',
+        rating: (data['rating'] as num?)?.toDouble() ?? 5,
+        isPopular: data['isPopular'] == true,
+        isAvailable: data['isAvailable'] != false,
+      );
 
   static const samples = <MenuItem>[
     MenuItem(
@@ -118,7 +155,7 @@ class MenuItem {
     ),
   ];
 
-  static const categories = <String>[
+  static const defaultCategories = <String>[
     'All',
     'Pizza',
     'Burgers',
@@ -129,4 +166,10 @@ class MenuItem {
     'Desserts',
     'Drinks',
   ];
+
+  static List<String> categoriesFor(Iterable<MenuItem> items) {
+    final categories = <String>{...defaultCategories};
+    categories.addAll(items.map((item) => item.category));
+    return categories.toList();
+  }
 }

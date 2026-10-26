@@ -3,10 +3,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/menu_item.dart';
+import '../../services/store_settings.dart';
 import '../../state/menu_catalog.dart';
 import '../../theme/nosh_theme.dart';
 import '../../widgets/food_image.dart';
-import '../auth/login_screen.dart';
 
 class AdminHome extends StatefulWidget {
   const AdminHome({super.key});
@@ -24,6 +24,7 @@ class _AdminHomeState extends State<AdminHome> {
   void initState() {
     super.initState();
     menuCatalog.addListener(_refreshMenu);
+    StoreSettings.instance.addListener(_refreshMenu);
   }
 
   void _refreshMenu() {
@@ -33,6 +34,7 @@ class _AdminHomeState extends State<AdminHome> {
   @override
   void dispose() {
     menuCatalog.removeListener(_refreshMenu);
+    StoreSettings.instance.removeListener(_refreshMenu);
     super.dispose();
   }
 
@@ -46,10 +48,13 @@ class _AdminHomeState extends State<AdminHome> {
         query: _menuQuery,
         onCategoryChanged: (category) => setState(() => _category = category),
         onQueryChanged: (query) => setState(() => _menuQuery = query),
-        onAvailabilityChanged: menuCatalog.setAvailability,
-        onAddDish: menuCatalog.add,
+        onAvailabilityChanged: _setAvailability,
+        onSaveDish: _saveDish,
+        onDeleteDish: _deleteDish,
       ),
       const _AnalyticsTab(),
+      const _SettingsTab(),
+      const _AccountsTab(),
     ];
     return Scaffold(
       body: SafeArea(
@@ -76,9 +81,57 @@ class _AdminHomeState extends State<AdminHome> {
             selectedIcon: Icon(Icons.insights_rounded),
             label: 'Analytics',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.tune_rounded),
+            label: 'Settings',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.people_outline_rounded),
+            label: 'Accounts',
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _setAvailability(String itemId, bool available) async {
+    await _runAdminAction(() => menuCatalog.setAvailability(itemId, available));
+  }
+
+  Future<void> _saveDish(MenuItem item) async {
+    await _runAdminAction(() async {
+      if (item.id.isEmpty) {
+        await menuCatalog.add(
+          name: item.name,
+          description: item.description,
+          category: item.category,
+          price: item.price,
+          imageUrl: item.imageUrl,
+          isPopular: item.isPopular,
+        );
+      } else {
+        await menuCatalog.update(item);
+      }
+    });
+  }
+
+  Future<void> _deleteDish(String itemId) async {
+    await _runAdminAction(() => menuCatalog.delete(itemId));
+  }
+
+  Future<void> _runAdminAction(Future<void> Function() action) async {
+    try {
+      await action();
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not save changes: ${error.message ?? error.code}',
+          ),
+        ),
+      );
+    }
   }
 }
 
@@ -90,6 +143,16 @@ class _DashboardTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return CustomScrollView(
       slivers: [
+        if (menuCatalog.error != null)
+          const SliverPadding(
+            padding: EdgeInsets.fromLTRB(20, 14, 20, 0),
+            sliver: SliverToBoxAdapter(
+              child: Text(
+                'Menu data could not be refreshed. Check Firestore access and connection.',
+                style: TextStyle(color: NoshTheme.error, fontSize: 12),
+              ),
+            ),
+          ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
           sliver: SliverToBoxAdapter(
@@ -99,8 +162,8 @@ class _DashboardTab extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Nosh Bistro',
+                      Text(
+                        StoreSettings.instance.appName,
                         style: TextStyle(
                           color: NoshTheme.primarySoft,
                           fontSize: 11,
@@ -586,7 +649,8 @@ class _MenuManagementTab extends StatelessWidget {
     required this.onCategoryChanged,
     required this.onQueryChanged,
     required this.onAvailabilityChanged,
-    required this.onAddDish,
+    required this.onSaveDish,
+    required this.onDeleteDish,
   });
 
   final List<MenuItem> items;
@@ -595,12 +659,8 @@ class _MenuManagementTab extends StatelessWidget {
   final ValueChanged<String> onCategoryChanged;
   final ValueChanged<String> onQueryChanged;
   final void Function(String itemId, bool available) onAvailabilityChanged;
-  final void Function({
-    required String name,
-    required String category,
-    required double price,
-  })
-  onAddDish;
+  final ValueChanged<MenuItem> onSaveDish;
+  final ValueChanged<String> onDeleteDish;
 
   @override
   Widget build(BuildContext context) {
@@ -645,7 +705,7 @@ class _MenuManagementTab extends StatelessWidget {
                   ),
                 ),
                 FilledButton.icon(
-                  onPressed: () => _showAddDish(context),
+                  onPressed: () => _showDishForm(context),
                   style: FilledButton.styleFrom(
                     backgroundColor: NoshTheme.primary,
                     foregroundColor: Colors.white,
@@ -682,10 +742,10 @@ class _MenuManagementTab extends StatelessWidget {
             child: ListView.separated(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
               scrollDirection: Axis.horizontal,
-              itemCount: MenuItem.categories.length,
+              itemCount: MenuItem.categoriesFor(items).length,
               separatorBuilder: (_, _) => const SizedBox(width: 8),
               itemBuilder: (context, index) {
-                final itemCategory = MenuItem.categories[index];
+                final itemCategory = MenuItem.categoriesFor(items)[index];
                 return ChoiceChip(
                   label: Text(itemCategory),
                   selected: itemCategory == category,
@@ -778,6 +838,19 @@ class _MenuManagementTab extends StatelessWidget {
                       onChanged: (value) =>
                           onAvailabilityChanged(item.id, value),
                     ),
+                    PopupMenuButton<String>(
+                      onSelected: (action) {
+                        if (action == 'edit') {
+                          _showDishForm(context, item: item);
+                        } else if (action == 'delete') {
+                          _confirmDelete(context, item);
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(value: 'edit', child: Text('Edit')),
+                        PopupMenuItem(value: 'delete', child: Text('Delete')),
+                      ],
+                    ),
                   ],
                 ),
               );
@@ -788,12 +861,19 @@ class _MenuManagementTab extends StatelessWidget {
     );
   }
 
-  Future<void> _showAddDish(BuildContext context) async {
-    final nameController = TextEditingController();
-    final priceController = TextEditingController();
+  Future<void> _showDishForm(BuildContext context, {MenuItem? item}) async {
+    final nameController = TextEditingController(text: item?.name ?? '');
+    final descriptionController = TextEditingController(
+      text: item?.description ?? '',
+    );
+    final priceController = TextEditingController(
+      text: item?.price.toStringAsFixed(2) ?? '',
+    );
+    final imageController = TextEditingController(text: item?.imageUrl ?? '');
     final formKey = GlobalKey<FormState>();
-    var selectedCategory = 'Pizza';
-    final shouldAdd = await showModalBottomSheet<bool>(
+    var selectedCategory = item?.category ?? MenuItem.defaultCategories[1];
+    var isPopular = item?.isPopular ?? false;
+    final result = await showModalBottomSheet<MenuItem>(
       context: context,
       isScrollControlled: true,
       backgroundColor: NoshTheme.surface,
@@ -804,85 +884,698 @@ class _MenuManagementTab extends StatelessWidget {
           20,
           MediaQuery.viewInsetsOf(context).bottom + 24,
         ),
-        child: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Add a menu item',
-                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Dish name'),
-                validator: (value) =>
-                    value == null || value.trim().isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: 10),
-              StatefulBuilder(
-                builder: (context, setSheetState) =>
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedCategory,
-                      decoration: const InputDecoration(labelText: 'Category'),
-                      items: MenuItem.categories
-                          .where((category) => category != 'All')
-                          .map(
-                            (category) => DropdownMenuItem(
-                              value: category,
-                              child: Text(category),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setSheetState(() => selectedCategory = value);
-                        }
-                      },
+        child: StatefulBuilder(
+          builder: (context, setSheetState) => Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    item == null ? 'Add a menu item' : 'Edit menu item',
+                    style: const TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
                     ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Dish name'),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Enter a dish name'
+                        : null,
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: descriptionController,
+                    minLines: 2,
+                    maxLines: 3,
+                    decoration: const InputDecoration(labelText: 'Description'),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Enter a description'
+                        : null,
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedCategory,
+                    decoration: const InputDecoration(labelText: 'Category'),
+                    items: MenuItem.categoriesFor(items)
+                        .where((category) => category != 'All')
+                        .map(
+                          (category) => DropdownMenuItem(
+                            value: category,
+                            child: Text(category),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setSheetState(() => selectedCategory = value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: priceController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(labelText: 'Price'),
+                    validator: (value) {
+                      final price = double.tryParse(value ?? '');
+                      return price == null || !price.isFinite || price <= 0
+                          ? 'Enter a valid price'
+                          : null;
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: imageController,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: 'Photo URL',
+                      helperText: 'Use a public HTTPS image URL.',
+                    ),
+                    validator: (value) {
+                      final uri = Uri.tryParse(value?.trim() ?? '');
+                      return uri == null ||
+                              uri.scheme != 'https' ||
+                              uri.host.isEmpty
+                          ? 'Enter a valid HTTPS image URL'
+                          : null;
+                    },
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Feature as popular'),
+                    value: isPopular,
+                    onChanged: (value) =>
+                        setSheetState(() => isPopular = value),
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton(
+                    onPressed: () {
+                      if (!formKey.currentState!.validate()) return;
+                      final price = double.parse(priceController.text.trim());
+                      Navigator.of(context).pop(
+                        MenuItem(
+                          id: item?.id ?? '',
+                          name: nameController.text.trim(),
+                          description: descriptionController.text.trim(),
+                          category: selectedCategory,
+                          price: price,
+                          imageUrl: imageController.text.trim(),
+                          rating: item?.rating ?? 5,
+                          isPopular: isPopular,
+                          isAvailable: item?.isAvailable ?? true,
+                        ),
+                      );
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: NoshTheme.primary,
+                    ),
+                    child: Text(item == null ? 'Add to menu' : 'Save changes'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: priceController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(labelText: 'Price'),
-                validator: (value) {
-                  final price = double.tryParse(value ?? '');
-                  return price == null || price <= 0
-                      ? 'Enter a valid price'
-                      : null;
-                },
-              ),
-              const SizedBox(height: 15),
-              FilledButton(
-                onPressed: () {
-                  if (formKey.currentState!.validate()) {
-                    Navigator.of(context).pop(true);
-                  }
-                },
-                style: FilledButton.styleFrom(
-                  backgroundColor: NoshTheme.primary,
-                ),
-                child: const Text('Add to menu'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
-    final name = nameController.text.trim();
-    final price = double.tryParse(priceController.text);
     nameController.dispose();
+    descriptionController.dispose();
     priceController.dispose();
-    if (shouldAdd == true && price != null && context.mounted) {
-      onAddDish(name: name, category: selectedCategory, price: price);
+    imageController.dispose();
+    if (result != null && context.mounted) {
+      onSaveDish(result);
+    }
+  }
+
+  Future<void> _confirmDelete(BuildContext context, MenuItem item) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete menu item?'),
+        content: Text('“${item.name}” will no longer appear to customers.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (shouldDelete == true) onDeleteDish(item.id);
+  }
+}
+
+class _SettingsTab extends StatefulWidget {
+  const _SettingsTab();
+
+  @override
+  State<_SettingsTab> createState() => _SettingsTabState();
+}
+
+class _SettingsTabState extends State<_SettingsTab> {
+  final _formKey = GlobalKey<FormState>();
+  late final Map<String, TextEditingController> _controllers;
+  late bool _orderingEnabled;
+  late Color _primaryColor;
+  late Color _backgroundColor;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final settings = StoreSettings.instance;
+    _controllers = {
+      'appName': TextEditingController(text: settings.appName),
+      'restaurantName': TextEditingController(text: settings.restaurantName),
+      'tagline': TextEditingController(text: settings.tagline),
+      'description': TextEditingController(text: settings.description),
+      'heroImageUrl': TextEditingController(text: settings.heroImageUrl),
+      'logoUrl': TextEditingController(text: settings.logoUrl),
+      'phone': TextEditingController(text: settings.phone),
+      'address': TextEditingController(text: settings.address),
+      'businessHours': TextEditingController(text: settings.businessHours),
+      'estimatedDeliveryTime': TextEditingController(
+        text: settings.estimatedDeliveryTime,
+      ),
+      'deliveryFee': TextEditingController(
+        text: settings.deliveryFee.toStringAsFixed(2),
+      ),
+      'freeDeliveryThreshold': TextEditingController(
+        text: settings.freeDeliveryThreshold.toStringAsFixed(2),
+      ),
+      'taxRate': TextEditingController(
+        text: (settings.taxRate * 100).toStringAsFixed(2),
+      ),
+    };
+    _orderingEnabled = settings.orderingEnabled;
+    _primaryColor = Color(settings.primaryColor);
+    _backgroundColor = Color(settings.backgroundColor);
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = StoreSettings.instance;
+    return Form(
+      key: _formKey,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 30),
+        children: [
+          const Text(
+            'Store settings',
+            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'Changes publish to customer screens as soon as they are saved.',
+            style: TextStyle(color: NoshTheme.muted, fontSize: 12),
+          ),
+          if (settings.error != null) ...[
+            const SizedBox(height: 12),
+            const Text(
+              'Store settings could not be loaded. Check Firestore access and connection.',
+              style: TextStyle(color: NoshTheme.error),
+            ),
+          ],
+          const SizedBox(height: 20),
+          _field('appName', 'App display name'),
+          _field('restaurantName', 'Restaurant name'),
+          _field('tagline', 'Home page tagline'),
+          _field('description', 'Restaurant description', maxLines: 3),
+          _field(
+            'heroImageUrl',
+            'Home page cover photo URL',
+            keyboardType: TextInputType.url,
+            validateUrl: true,
+          ),
+          _field(
+            'logoUrl',
+            'App logo URL',
+            keyboardType: TextInputType.url,
+            validateUrl: true,
+            optional: true,
+          ),
+          _field('phone', 'Contact phone'),
+          _field('address', 'Restaurant / delivery area'),
+          _field('businessHours', 'Business hours'),
+          _field('estimatedDeliveryTime', 'Estimated delivery time'),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _controllers['deliveryFee'],
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Delivery fee'),
+            validator: _validateNonNegativeNumber,
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            controller: _controllers['freeDeliveryThreshold'],
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Free delivery minimum',
+            ),
+            validator: _validateNonNegativeNumber,
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            controller: _controllers['taxRate'],
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Tax rate (%)',
+              helperText: 'Enter a percentage from 0 to 100.',
+            ),
+            validator: (value) {
+              final number = double.tryParse(value ?? '');
+              return number == null ||
+                      !number.isFinite ||
+                      number < 0 ||
+                      number > 100
+                  ? 'Enter a percentage between 0 and 100'
+                  : null;
+            },
+          ),
+          const SizedBox(height: 10),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Accepting orders'),
+            subtitle: const Text(
+              'Turn this off to prevent customers from placing orders.',
+            ),
+            value: _orderingEnabled,
+            onChanged: (value) => setState(() => _orderingEnabled = value),
+          ),
+          const SizedBox(height: 8),
+          _colorTile(
+            title: 'Accent color',
+            color: _primaryColor,
+            onTap: () => _chooseColor(primary: true),
+          ),
+          _colorTile(
+            title: 'Background color',
+            color: _backgroundColor,
+            onTap: () => _chooseColor(primary: false),
+          ),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: _saving ? null : _save,
+            icon: _saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_outlined),
+            label: const Text('Publish store changes'),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Image uploads are not configured; use public HTTPS image URLs. Updating the native launcher icon or browser favicon requires a new app/web build.',
+            style: TextStyle(color: NoshTheme.muted, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _field(
+    String key,
+    String label, {
+    int maxLines = 1,
+    TextInputType? keyboardType,
+    bool validateUrl = false,
+    bool optional = false,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: TextFormField(
+      controller: _controllers[key],
+      maxLines: maxLines,
+      keyboardType: keyboardType,
+      decoration: InputDecoration(labelText: label),
+      validator: (value) {
+        final text = value?.trim() ?? '';
+        if (text.isEmpty && optional) return null;
+        if (text.isEmpty) return 'This field is required';
+        if (validateUrl && text.isNotEmpty) {
+          final uri = Uri.tryParse(text);
+          if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
+            return 'Enter a valid HTTPS URL';
+          }
+        }
+        return null;
+      },
+    ),
+  );
+
+  Widget _colorTile({
+    required String title,
+    required Color color,
+    required VoidCallback onTap,
+  }) => ListTile(
+    contentPadding: EdgeInsets.zero,
+    title: Text(title),
+    subtitle: Text(
+      '#${color.toARGB32().toRadixString(16).substring(2).toUpperCase()}',
+    ),
+    trailing: CircleAvatar(backgroundColor: color, radius: 16),
+    onTap: onTap,
+  );
+
+  Future<void> _chooseColor({required bool primary}) async {
+    const colors = [
+      Color(0xFFFF6D00),
+      Color(0xFFE53935),
+      Color(0xFF8E24AA),
+      Color(0xFF3949AB),
+      Color(0xFF00897B),
+      Color(0xFF43A047),
+      Color(0xFF6D4C41),
+      Color(0xFF263238),
+    ];
+    final selected = await showDialog<Color>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Choose a color'),
+        content: Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: colors
+              .map(
+                (color) => InkWell(
+                  onTap: () => Navigator.pop(context, color),
+                  child: CircleAvatar(backgroundColor: color, radius: 22),
+                ),
+              )
+              .toList(),
+        ),
+      ),
+    );
+    if (selected != null) {
+      setState(() {
+        if (primary) {
+          _primaryColor = selected;
+        } else {
+          _backgroundColor = selected;
+        }
+      });
+    }
+  }
+
+  String? _validateNonNegativeNumber(String? value) {
+    final number = double.tryParse(value ?? '');
+    return number == null || !number.isFinite || number < 0
+        ? 'Enter a valid non-negative amount'
+        : null;
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      await StoreSettings.instance.save({
+        for (final entry in _controllers.entries)
+          if (!{
+            'deliveryFee',
+            'freeDeliveryThreshold',
+            'taxRate',
+          }.contains(entry.key))
+            entry.key: entry.value.text.trim(),
+        'deliveryFee': double.parse(_controllers['deliveryFee']!.text),
+        'freeDeliveryThreshold': double.parse(
+          _controllers['freeDeliveryThreshold']!.text,
+        ),
+        'taxRate': double.parse(_controllers['taxRate']!.text) / 100,
+        'orderingEnabled': _orderingEnabled,
+        'primaryColor': _primaryColor.toARGB32(),
+        'backgroundColor': _backgroundColor.toARGB32(),
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Store settings published.')),
+      );
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Settings could not be saved: ${error.message ?? error.code}',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+}
+
+class _AccountsTab extends StatelessWidget {
+  const _AccountsTab();
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    return CustomScrollView(
+      slivers: [
+        const SliverPadding(
+          padding: EdgeInsets.fromLTRB(20, 22, 20, 8),
+          sliver: SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Accounts',
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
+                ),
+                SizedBox(height: 5),
+                Text(
+                  'Review customer profiles and manage app roles.',
+                  style: TextStyle(color: NoshTheme.muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SliverFillRemaining(
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .orderBy('createdAt', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'Accounts are unavailable. Check Firestore security rules and access.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: NoshTheme.error),
+                    ),
+                  ),
+                );
+              }
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(color: NoshTheme.primary),
+                );
+              }
+              final users = snapshot.data?.docs ?? [];
+              if (users.isEmpty) {
+                return const Center(child: Text('No user profiles yet.'));
+              }
+              return ListView.separated(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                itemCount: users.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 9),
+                itemBuilder: (context, index) {
+                  final user = users[index];
+                  final data = user.data();
+                  final isAdmin = data['role'] == 'admin';
+                  final isSelf = user.id == currentUserId;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 13,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: NoshTheme.surface,
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: NoshTheme.primary.withValues(
+                            alpha: 0.16,
+                          ),
+                          child: Icon(
+                            isAdmin ? Icons.admin_panel_settings : Icons.person,
+                            color: NoshTheme.primarySoft,
+                          ),
+                        ),
+                        const SizedBox(width: 11),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                data['displayName']
+                                            ?.toString()
+                                            .trim()
+                                            .isNotEmpty ==
+                                        true
+                                    ? data['displayName'].toString()
+                                    : 'Customer',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              Text(
+                                data['email']?.toString() ?? '',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: NoshTheme.muted,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Edit customer profile',
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          onPressed: () =>
+                              _editProfile(context, user.reference, data),
+                        ),
+                        DropdownButton<String>(
+                          value: isAdmin ? 'admin' : 'customer',
+                          underline: const SizedBox.shrink(),
+                          onChanged: isSelf
+                              ? null
+                              : (role) =>
+                                    _changeRole(context, user.reference, role!),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'customer',
+                              child: Text('Customer'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'admin',
+                              child: Text('Admin'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _editProfile(
+    BuildContext context,
+    DocumentReference<Map<String, dynamic>> reference,
+    Map<String, dynamic> data,
+  ) async {
+    final nameController = TextEditingController(
+      text: data['displayName']?.toString() ?? '',
+    );
+    final phoneController = TextEditingController(
+      text: data['phone']?.toString() ?? '',
+    );
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit customer profile'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: 'Display name'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: phoneController,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Phone'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    final displayName = nameController.text.trim();
+    final phone = phoneController.text.trim();
+    nameController.dispose();
+    phoneController.dispose();
+    if (shouldSave != true || !context.mounted) return;
+    try {
+      await reference.update({'displayName': displayName, 'phone': phone});
+    } on FirebaseException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Profile could not be saved: ${error.message ?? error.code}',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _changeRole(
+    BuildContext context,
+    DocumentReference<Map<String, dynamic>> reference,
+    String role,
+  ) async {
+    try {
+      await reference.update({'role': role});
+      if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Dish added to the menu.')));
+      ).showSnackBar(const SnackBar(content: Text('Account role updated.')));
+    } on FirebaseException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Account role could not be updated: ${error.message ?? error.code}',
+          ),
+        ),
+      );
     }
   }
 }
@@ -1266,11 +1959,6 @@ class _RevenueChartPainter extends CustomPainter {
 Future<void> _signOut(BuildContext context) async {
   try {
     await FirebaseAuth.instance.signOut();
-    if (!context.mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
-      (_) => false,
-    );
   } on FirebaseAuthException catch (error) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

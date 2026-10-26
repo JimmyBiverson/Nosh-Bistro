@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import '../admin/admin_home.dart';
-import '../user/user_home.dart';
 import 'signup_screen.dart';
 import '../../services/auth_service.dart';
+import '../../services/store_settings.dart';
 import '../../widgets/google_sign_in_button.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -22,13 +21,24 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   String? _errorMessage;
 
-  static const _orange = Color(0xFFFF6D00);
-  static const _surface = Color(0xFF1C110A);
   static const _card = Color(0xFF291D15);
   static const _amber = Color(0xFFFFD54F);
 
+  Color get _accentColor => Color(StoreSettings.instance.primaryColor);
+
+  @override
+  void initState() {
+    super.initState();
+    StoreSettings.instance.addListener(_refreshBranding);
+  }
+
+  void _refreshBranding() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    StoreSettings.instance.removeListener(_refreshBranding);
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -54,10 +64,8 @@ class _LoginScreenState extends State<LoginScreen> {
           message: 'Firebase did not return a signed-in user.',
         );
       }
-      final role = await AuthService.resolveRole(user);
+      await AuthService.resolveRole(user);
       if (!mounted) return;
-
-      _openHome(role);
     } on FirebaseAuthException catch (e) {
       if (mounted) setState(() => _errorMessage = _mapError(e.code));
     } on FirebaseException catch (e) {
@@ -78,8 +86,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
     try {
-      final role = await AuthService.signInWithGoogle();
-      if (mounted) _openHome(role);
+      await AuthService.signInWithGoogle();
     } on GoogleSignInException catch (error) {
       if (mounted && error.code != GoogleSignInExceptionCode.canceled) {
         setState(() {
@@ -100,13 +107,6 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  void _openHome(String role) {
-    final Widget home = role == 'admin' ? const AdminHome() : const UserHome();
-    Navigator.of(
-      context,
-    ).pushReplacement(MaterialPageRoute<void>(builder: (_) => home));
   }
 
   Future<void> _sendPasswordReset() async {
@@ -197,7 +197,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _surface,
+      backgroundColor: Color(StoreSettings.instance.backgroundColor),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
@@ -211,14 +211,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(
-                      Icons.local_fire_department,
-                      color: _orange,
-                      size: 32,
-                    ),
+                    StoreBrandLogo(size: 32, color: _accentColor),
                     const SizedBox(width: 8),
-                    Text(
-                      'Nosh Bistro',
+                    StoreBrandName(
                       style: Theme.of(context).textTheme.headlineMedium
                           ?.copyWith(
                             color: Colors.white,
@@ -236,10 +231,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: BoxDecoration(
                     color: _card,
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: _orange.withValues(alpha: 0.15)),
+                    border: Border.all(
+                      color: _accentColor.withValues(alpha: 0.15),
+                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: _orange.withValues(alpha: 0.08),
+                        color: _accentColor.withValues(alpha: 0.08),
                         blurRadius: 32,
                         offset: const Offset(0, 8),
                       ),
@@ -385,10 +382,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const SignupScreen()),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Sign Up',
                         style: TextStyle(
-                          color: _orange,
+                          color: _accentColor,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -435,7 +432,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(99),
-          borderSide: const BorderSide(color: _orange, width: 1.5),
+          borderSide: BorderSide(color: _accentColor, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(99),
@@ -463,13 +460,13 @@ class _LoginScreenState extends State<LoginScreen> {
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: _orange,
+          backgroundColor: _accentColor,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(99),
           ),
           elevation: 0,
-          shadowColor: _orange.withValues(alpha: 0.4),
+          shadowColor: _accentColor.withValues(alpha: 0.4),
         ),
         child: isLoading
             ? const SizedBox(

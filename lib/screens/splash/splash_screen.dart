@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../main.dart' show AuthGate;
+import '../../services/store_settings.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -209,12 +210,11 @@ class _SplashScreenState extends State<SplashScreen>
               ),
             ),
             child: const Center(
-              child: Text('🍽️', style: TextStyle(fontSize: 38)),
+              child: StoreBrandLogo(size: 56, color: Colors.white),
             ),
           ),
           const SizedBox(height: 18),
-          const Text(
-            'Nosh Bistro',
+          const StoreBrandName(
             style: TextStyle(
               color: Colors.white,
               fontSize: 38,

@@ -1,0 +1,1 @@
+void updateWebFavicon(String imageUrl) {}

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/admin/admin_home.dart';
@@ -10,6 +11,8 @@ import 'screens/startup/firebase_setup_screen.dart';
 import 'theme/nosh_theme.dart';
 import 'firebase_options.dart';
 import 'services/auth_service.dart';
+import 'services/store_settings.dart';
+import 'state/menu_catalog.dart';
 
 /// Entry point — initialises Firebase then runs the app.
 void main() async {
@@ -22,6 +25,10 @@ void main() async {
   } catch (error, stackTrace) {
     startupError = _firebaseStartupMessage(error);
     debugPrint('Firebase initialization failed: $error\n$stackTrace');
+  }
+  if (startupError == null) {
+    StoreSettings.instance.start();
+    menuCatalog.start();
   }
   runApp(NoshBistroApp(startupErrorMessage: startupError));
 }
@@ -43,13 +50,16 @@ class NoshBistroApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Nosh Bistro',
-      debugShowCheckedModeBanner: false,
-      theme: NoshTheme.theme,
-      home: startupErrorMessage == null
-          ? const SplashScreen()
-          : FirebaseSetupScreen(message: startupErrorMessage!),
+    return AnimatedBuilder(
+      animation: StoreSettings.instance,
+      builder: (context, _) => MaterialApp(
+        title: StoreSettings.instance.appName,
+        debugShowCheckedModeBanner: false,
+        theme: NoshTheme.theme,
+        home: startupErrorMessage == null
+            ? const SplashScreen()
+            : FirebaseSetupScreen(message: startupErrorMessage!),
+      ),
     );
   }
 }
@@ -103,8 +113,31 @@ class _AuthGateState extends State<AuthGate> {
               );
             }
 
-            if (roleSnapshot.data == 'admin') return const AdminHome();
-            return const UserHome();
+            return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user.uid)
+                  .snapshots(),
+              builder: (context, profileSnapshot) {
+                if (profileSnapshot.connectionState ==
+                    ConnectionState.waiting) {
+                  return const _SplashLoader();
+                }
+                if (profileSnapshot.hasError ||
+                    !profileSnapshot.hasData ||
+                    !profileSnapshot.data!.exists) {
+                  return _AccountRoleErrorScreen(
+                    onRetry: () => setState(
+                      () => _roleFuture = AuthService.resolveRole(user),
+                    ),
+                  );
+                }
+                if (profileSnapshot.data!.data()?['role'] == 'admin') {
+                  return const AdminHome();
+                }
+                return const UserHome();
+              },
+            );
           },
         );
       },

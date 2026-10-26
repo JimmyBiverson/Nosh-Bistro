@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/menu_item.dart';
+import '../../services/store_settings.dart';
 import '../../state/menu_catalog.dart';
 import '../../state/order_cart.dart';
 import '../../theme/nosh_theme.dart';
@@ -25,11 +26,22 @@ class _MenuScreenState extends State<MenuScreen> {
   void initState() {
     super.initState();
     _category = widget.initialCategory;
+    menuCatalog.addListener(_refresh);
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    menuCatalog.removeListener(_refresh);
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final items = menuCatalog.items.where((item) {
+    final items = menuCatalog.availableItems.where((item) {
       final inCategory = _category == 'All' || item.category == _category;
       final query = _search.toLowerCase();
       final matches =
@@ -38,6 +50,7 @@ class _MenuScreenState extends State<MenuScreen> {
           item.description.toLowerCase().contains(query);
       return inCategory && matches;
     }).toList();
+    final categories = MenuItem.categoriesFor(menuCatalog.availableItems);
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -62,10 +75,10 @@ class _MenuScreenState extends State<MenuScreen> {
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               scrollDirection: Axis.horizontal,
-              itemCount: MenuItem.categories.length,
+              itemCount: categories.length,
               separatorBuilder: (_, _) => const SizedBox(width: 8),
               itemBuilder: (context, index) {
-                final category = MenuItem.categories[index];
+                final category = categories[index];
                 return ChoiceChip(
                   label: Text(category),
                   selected: _category == category,
@@ -117,122 +130,137 @@ class RestaurantScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 260,
-            pinned: true,
-            backgroundColor: NoshTheme.background,
-            flexibleSpace: FlexibleSpaceBar(
-              background: Stack(
-                fit: StackFit.expand,
-                children: [
-                  const FoodImage(
-                    url:
-                        'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=1200&q=90',
-                    borderRadius: 0,
-                  ),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withValues(alpha: 0.05),
-                          Colors.black.withValues(alpha: 0.76),
+    return AnimatedBuilder(
+      animation: Listenable.merge([StoreSettings.instance, menuCatalog]),
+      builder: (context, _) => Scaffold(
+        body: CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              expandedHeight: 260,
+              pinned: true,
+              backgroundColor: NoshTheme.background,
+              flexibleSpace: FlexibleSpaceBar(
+                background: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    FoodImage(
+                      url: StoreSettings.instance.heroImageUrl,
+                      borderRadius: 0,
+                    ),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.05),
+                            Colors.black.withValues(alpha: 0.76),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 22,
+                      bottom: 22,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            StoreSettings.instance.restaurantName.toUpperCase(),
+                            style: TextStyle(
+                              color: NoshTheme.primarySoft,
+                              letterSpacing: 1.6,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            StoreSettings.instance.tagline,
+                            style: TextStyle(
+                              fontSize: 27,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                  ),
-                  const Positioned(
-                    left: 22,
-                    bottom: 22,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  ],
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
+                        const Icon(
+                          Icons.star_rounded,
+                          color: NoshTheme.amber,
+                          size: 19,
+                        ),
+                        SizedBox(width: 4),
+                        const Text(
+                          '4.9',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        SizedBox(width: 6),
+                        const Text(
+                          '(1.2k reviews)',
+                          style: TextStyle(color: NoshTheme.muted),
+                        ),
+                        Spacer(),
                         Text(
-                          'THE FLAME BISTRO',
+                          StoreSettings.instance.businessHours,
                           style: TextStyle(
                             color: NoshTheme.primarySoft,
-                            letterSpacing: 1.6,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'Crafted over fire.',
-                          style: TextStyle(
-                            fontSize: 27,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-            sliver: SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(
-                    children: [
-                      Icon(
-                        Icons.star_rounded,
-                        color: NoshTheme.amber,
-                        size: 19,
-                      ),
-                      SizedBox(width: 4),
+                    const SizedBox(height: 14),
+                    Text(
+                      StoreSettings.instance.description,
+                      style: TextStyle(color: NoshTheme.muted, height: 1.55),
+                    ),
+                    if (StoreSettings.instance.phone.isNotEmpty) ...[
+                      const SizedBox(height: 10),
                       Text(
-                        '4.9',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      SizedBox(width: 6),
-                      Text(
-                        '(1.2k reviews)',
-                        style: TextStyle(color: NoshTheme.muted),
-                      ),
-                      Spacer(),
-                      Text(
-                        '20–30 min',
-                        style: TextStyle(
-                          color: NoshTheme.primarySoft,
-                          fontWeight: FontWeight.w700,
+                        'Contact: ${StoreSettings.instance.phone}',
+                        style: const TextStyle(
+                          color: NoshTheme.muted,
+                          fontSize: 12,
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'A neighborhood kitchen bringing a little fire and a lot of heart to every plate. Made fresh, sourced thoughtfully, delivered warm.',
-                    style: TextStyle(color: NoshTheme.muted, height: 1.55),
-                  ),
-                  const SizedBox(height: 22),
-                  const Text(
-                    'Today’s favorites',
-                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 12),
-                ],
+                    const SizedBox(height: 22),
+                    const Text(
+                      'Today’s favorites',
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ),
               ),
             ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 26),
-            sliver: SliverList.separated(
-              itemCount: menuCatalog.items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 12),
-              itemBuilder: (context, index) =>
-                  _MenuListTile(item: menuCatalog.items[index]),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 26),
+              sliver: SliverList.separated(
+                itemCount: menuCatalog.availableItems.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 12),
+                itemBuilder: (context, index) =>
+                    _MenuListTile(item: menuCatalog.availableItems[index]),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -251,8 +279,28 @@ class _DishDetailScreenState extends State<DishDetailScreen> {
   int _quantity = 1;
 
   @override
+  void initState() {
+    super.initState();
+    menuCatalog.addListener(_refresh);
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    menuCatalog.removeListener(_refresh);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final item = widget.item;
+    final currentItem = menuCatalog.items
+        .where((entry) => entry.id == widget.item.id)
+        .firstOrNull;
+    final item = currentItem ?? widget.item;
+    final itemAvailable = currentItem?.isAvailable == true;
     return Scaffold(
       body: CustomScrollView(
         slivers: [
@@ -372,14 +420,19 @@ class _DishDetailScreenState extends State<DishDetailScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: FilledButton(
-                onPressed: () {
-                  for (var i = 0; i < _quantity; i++) {
-                    orderCart.add(item);
-                  }
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${item.name} added to your cart')),
-                  );
-                },
+                onPressed:
+                    StoreSettings.instance.orderingEnabled && itemAvailable
+                    ? () {
+                        for (var i = 0; i < _quantity; i++) {
+                          orderCart.add(item);
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${item.name} added to your cart'),
+                          ),
+                        );
+                      }
+                    : null,
                 style: FilledButton.styleFrom(
                   backgroundColor: NoshTheme.primary,
                   foregroundColor: Colors.white,
@@ -389,7 +442,11 @@ class _DishDetailScreenState extends State<DishDetailScreen> {
                   ),
                 ),
                 child: Text(
-                  'Add to cart  ·  \$${(item.price * _quantity).toStringAsFixed(2)}',
+                  StoreSettings.instance.orderingEnabled && itemAvailable
+                      ? 'Add to cart  ·  \$${(item.price * _quantity).toStringAsFixed(2)}'
+                      : itemAvailable
+                      ? 'Ordering is currently paused'
+                      : 'Currently unavailable',
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -425,7 +482,7 @@ class CartScreen extends StatelessWidget {
         ],
       ),
       body: AnimatedBuilder(
-        animation: orderCart,
+        animation: Listenable.merge([orderCart, StoreSettings.instance]),
         builder: (context, _) {
           if (orderCart.isEmpty) {
             return const _EmptyCart();
@@ -442,21 +499,21 @@ class CartScreen extends StatelessWidget {
                     color: NoshTheme.outline.withValues(alpha: 0.5),
                   ),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.local_fire_department_rounded,
                       color: NoshTheme.primary,
                     ),
-                    SizedBox(width: 10),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'The Flame Bistro',
-                        style: TextStyle(fontWeight: FontWeight.w800),
+                        StoreSettings.instance.restaurantName,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
                     Text(
-                      '20–30 min',
+                      StoreSettings.instance.estimatedDeliveryTime,
                       style: TextStyle(color: NoshTheme.muted, fontSize: 11),
                     ),
                   ],
@@ -478,11 +535,13 @@ class CartScreen extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               FilledButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const CheckoutScreen(),
-                  ),
-                ),
+                onPressed: StoreSettings.instance.orderingEnabled
+                    ? () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const CheckoutScreen(),
+                        ),
+                      )
+                    : null,
                 style: FilledButton.styleFrom(
                   backgroundColor: NoshTheme.primary,
                   foregroundColor: Colors.white,
@@ -492,7 +551,9 @@ class CartScreen extends StatelessWidget {
                   ),
                 ),
                 child: Text(
-                  'Continue to checkout  ·  \$${orderCart.total.toStringAsFixed(2)}',
+                  StoreSettings.instance.orderingEnabled
+                      ? 'Continue to checkout  ·  \$${orderCart.total.toStringAsFixed(2)}'
+                      : 'Ordering is currently paused',
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -627,7 +688,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _placingOrder = false;
 
   @override
+  void initState() {
+    super.initState();
+    StoreSettings.instance.addListener(_refresh);
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    StoreSettings.instance.removeListener(_refresh);
     _addressController.dispose();
     _phoneController.dispose();
     super.dispose();
@@ -735,7 +807,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
             const SizedBox(height: 18),
             FilledButton(
-              onPressed: _placingOrder ? null : _placeOrder,
+              onPressed:
+                  _placingOrder || !StoreSettings.instance.orderingEnabled
+                  ? null
+                  : _placeOrder,
               style: FilledButton.styleFrom(
                 backgroundColor: NoshTheme.primary,
                 foregroundColor: Colors.white,
@@ -754,7 +829,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       ),
                     )
                   : Text(
-                      'Place order  ·  \$${orderCart.total.toStringAsFixed(2)}',
+                      StoreSettings.instance.orderingEnabled
+                          ? 'Place order  ·  \$${orderCart.total.toStringAsFixed(2)}'
+                          : 'Ordering is currently paused',
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
             ),
@@ -771,6 +848,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _placeOrder() async {
+    if (!StoreSettings.instance.orderingEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ordering is currently paused.')),
+      );
+      return;
+    }
     if (!_formKey.currentState!.validate()) return;
     if (orderCart.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -791,7 +874,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     try {
       final order = await FirebaseFirestore.instance.collection('orders').add({
         'userId': user.uid,
-        'restaurantName': 'The Flame Bistro',
+        'restaurantName': StoreSettings.instance.restaurantName,
         'status': 'Preparing',
         'createdAt': FieldValue.serverTimestamp(),
         'address': _addressController.text.trim(),
@@ -1010,14 +1093,14 @@ class OrderTrackingScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 7),
                 Text(
-                  'Order #${_shortId(orderId)}  ·  The Flame Bistro',
+                  'Order #${_shortId(orderId)}  ·  ${StoreSettings.instance.restaurantName}',
                   style: const TextStyle(
                     color: Color(0xFFE5C7B6),
                     fontSize: 11,
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Row(
+                Row(
                   children: [
                     Icon(
                       Icons.schedule_rounded,
@@ -1031,7 +1114,7 @@ class OrderTrackingScreen extends StatelessWidget {
                     ),
                     Spacer(),
                     Text(
-                      '25–35 min',
+                      StoreSettings.instance.estimatedDeliveryTime,
                       style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ],
@@ -1263,7 +1346,7 @@ class OrderHistoryScreen extends StatelessWidget {
                           const SizedBox(height: 9),
                           Text(
                             orderItems.isEmpty
-                                ? 'The Flame Bistro'
+                                ? StoreSettings.instance.restaurantName
                                 : orderItems,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -1375,12 +1458,16 @@ class _MenuListTile extends StatelessWidget {
                       ),
                     ),
                     InkWell(
-                      onTap: () {
-                        orderCart.add(item);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('${item.name} added to cart')),
-                        );
-                      },
+                      onTap: StoreSettings.instance.orderingEnabled
+                          ? () {
+                              orderCart.add(item);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('${item.name} added to cart'),
+                                ),
+                              );
+                            }
+                          : null,
                       child: const CircleAvatar(
                         radius: 15,
                         backgroundColor: NoshTheme.primary,

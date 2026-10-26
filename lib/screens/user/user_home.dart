@@ -3,11 +3,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/menu_item.dart';
+import '../../services/store_settings.dart';
 import '../../state/menu_catalog.dart';
 import '../../state/order_cart.dart';
 import '../../theme/nosh_theme.dart';
 import '../../widgets/food_image.dart';
-import '../auth/login_screen.dart';
 import 'commerce_screens.dart';
 
 class UserHome extends StatefulWidget {
@@ -24,6 +24,7 @@ class _UserHomeState extends State<UserHome> {
   void initState() {
     super.initState();
     menuCatalog.addListener(_refreshMenu);
+    StoreSettings.instance.addListener(_refreshMenu);
   }
 
   void _refreshMenu() {
@@ -33,6 +34,7 @@ class _UserHomeState extends State<UserHome> {
   @override
   void dispose() {
     menuCatalog.removeListener(_refreshMenu);
+    StoreSettings.instance.removeListener(_refreshMenu);
     super.dispose();
   }
 
@@ -93,10 +95,11 @@ class _HomeTabState extends State<_HomeTab> {
   @override
   Widget build(BuildContext context) {
     final items = _category == 'All'
-        ? menuCatalog.items
-        : menuCatalog.items
+        ? menuCatalog.availableItems
+        : menuCatalog.availableItems
               .where((item) => item.category == _category)
               .toList();
+    final categories = MenuItem.categoriesFor(menuCatalog.availableItems);
     return CustomScrollView(
       key: const PageStorageKey('home-scroll'),
       slivers: [
@@ -104,6 +107,16 @@ class _HomeTabState extends State<_HomeTab> {
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
           sliver: SliverToBoxAdapter(child: _HomeHeader(onCart: _openCart)),
         ),
+        if (menuCatalog.error != null)
+          const SliverPadding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            sliver: SliverToBoxAdapter(
+              child: Text(
+                'Menu updates are temporarily unavailable. Showing the last available menu.',
+                style: TextStyle(color: NoshTheme.error, fontSize: 12),
+              ),
+            ),
+          ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
           sliver: SliverToBoxAdapter(child: _Greeting()),
@@ -112,6 +125,19 @@ class _HomeTabState extends State<_HomeTab> {
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
           sliver: SliverToBoxAdapter(child: _HeroCard(onTap: _openRestaurant)),
         ),
+        if (!StoreSettings.instance.orderingEnabled)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+            sliver: SliverToBoxAdapter(
+              child: Text(
+                'Online ordering is temporarily paused.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
           sliver: SliverToBoxAdapter(
@@ -128,10 +154,10 @@ class _HomeTabState extends State<_HomeTab> {
             child: ListView.separated(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
               scrollDirection: Axis.horizontal,
-              itemCount: MenuItem.categories.length,
+              itemCount: categories.length,
               separatorBuilder: (_, _) => const SizedBox(width: 12),
               itemBuilder: (context, index) {
-                final category = MenuItem.categories[index];
+                final category = categories[index];
                 final selected = category == _category;
                 return _CategoryButton(
                   label: category,
@@ -208,18 +234,17 @@ class _HomeHeader extends StatelessWidget {
             color: NoshTheme.primary.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(15),
           ),
-          child: const Icon(
-            Icons.local_fire_department_rounded,
-            color: NoshTheme.primary,
-            size: 25,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(15),
+            child: StoreBrandLogo(size: 42),
           ),
         ),
         const SizedBox(width: 10),
-        const Column(
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'NOSH BISTRO',
+              StoreSettings.instance.appName.toUpperCase(),
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w900,
@@ -239,12 +264,12 @@ class _HomeHeader extends StatelessWidget {
           ],
         ),
         const SizedBox(width: 7),
-        const Expanded(
+        Expanded(
           child: Row(
             children: [
               Flexible(
                 child: Text(
-                  'Downtown, 10001',
+                  StoreSettings.instance.address,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
@@ -271,30 +296,44 @@ class _HomeHeader extends StatelessWidget {
 class _Greeting extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final firstName =
-        FirebaseAuth.instance.currentUser?.displayName
-            ?.trim()
-            .split(' ')
-            .first ??
-        '';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          firstName.isEmpty ? 'Good evening' : 'Good evening, $firstName',
-          style: const TextStyle(
-            fontSize: 28,
-            height: 1.15,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.8,
-          ),
-        ),
-        const SizedBox(height: 5),
-        const Text(
-          'What are you craving today?',
-          style: TextStyle(color: NoshTheme.muted, fontSize: 14),
-        ),
-      ],
+    final user = FirebaseAuth.instance.currentUser;
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: user == null
+          ? null
+          : FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .snapshots(),
+      builder: (context, snapshot) {
+        final profileName = snapshot.data?.data()?['displayName']?.toString();
+        final name =
+            (profileName?.trim().isNotEmpty == true
+                    ? profileName
+                    : user?.displayName)
+                ?.trim()
+                .split(' ')
+                .first ??
+            '';
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              name.isEmpty ? 'Good evening' : 'Good evening, $name',
+              style: const TextStyle(
+                fontSize: 28,
+                height: 1.15,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.8,
+              ),
+            ),
+            const SizedBox(height: 5),
+            const Text(
+              'What are you craving today?',
+              style: TextStyle(color: NoshTheme.muted, fontSize: 14),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -335,7 +374,7 @@ class _HeroCard extends StatelessWidget {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(100),
                 child: Image.network(
-                  'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=700&q=85',
+                  StoreSettings.instance.heroImageUrl,
                   fit: BoxFit.cover,
                   errorBuilder: (_, _, _) => const Icon(
                     Icons.local_pizza_rounded,
@@ -374,8 +413,8 @@ class _HeroCard extends StatelessWidget {
                       color: NoshTheme.primary.withValues(alpha: 0.25),
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Text(
-                      'THE FLAME BISTRO',
+                    child: Text(
+                      StoreSettings.instance.restaurantName.toUpperCase(),
                       style: TextStyle(
                         color: Color(0xFFFFD2AE),
                         fontSize: 9,
@@ -385,8 +424,8 @@ class _HeroCard extends StatelessWidget {
                     ),
                   ),
                   const Spacer(),
-                  const Text(
-                    'A little fire.\nA lot of flavor.',
+                  Text(
+                    StoreSettings.instance.tagline,
                     style: TextStyle(
                       fontSize: 23,
                       height: 1.1,
@@ -395,9 +434,9 @@ class _HeroCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  const Row(
+                  Row(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.star_rounded,
                         size: 16,
                         color: NoshTheme.amber,
@@ -409,7 +448,7 @@ class _HeroCard extends StatelessWidget {
                       ),
                       SizedBox(width: 7),
                       Text(
-                        '·  20–30 min  ·  \$\$',
+                        '· ${StoreSettings.instance.estimatedDeliveryTime} · Delivery',
                         style: TextStyle(
                           color: Color(0xFFE8C9B8),
                           fontSize: 11,
@@ -421,14 +460,14 @@ class _HeroCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Positioned(
+            Positioned(
               right: 16,
               bottom: 16,
               child: CircleAvatar(
                 radius: 18,
                 backgroundColor: NoshTheme.primary,
                 foregroundColor: Colors.white,
-                child: Icon(Icons.arrow_forward_rounded, size: 18),
+                child: const Icon(Icons.arrow_forward_rounded, size: 18),
               ),
             ),
           ],
@@ -648,20 +687,25 @@ class _DishCard extends StatelessWidget {
                         ),
                       ),
                       InkWell(
-                        onTap: () {
-                          orderCart.add(item);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('${item.name} added to cart'),
-                            ),
-                          );
-                        },
+                        onTap: StoreSettings.instance.orderingEnabled
+                            ? () {
+                                orderCart.add(item);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('${item.name} added to cart'),
+                                  ),
+                                );
+                              }
+                            : null,
                         borderRadius: BorderRadius.circular(12),
-                        child: const CircleAvatar(
+                        child: CircleAvatar(
                           radius: 15,
-                          backgroundColor: NoshTheme.primary,
+                          backgroundColor:
+                              StoreSettings.instance.orderingEnabled
+                              ? NoshTheme.primary
+                              : NoshTheme.surfaceHigh,
                           foregroundColor: Colors.white,
-                          child: Icon(Icons.add_rounded, size: 18),
+                          child: const Icon(Icons.add_rounded, size: 18),
                         ),
                       ),
                     ],
@@ -720,7 +764,8 @@ class _DiscoverTabState extends State<_DiscoverTab> {
   @override
   Widget build(BuildContext context) {
     final query = _searchController.text.trim().toLowerCase();
-    final filtered = menuCatalog.items.where((item) {
+    final categories = MenuItem.categoriesFor(menuCatalog.availableItems);
+    final filtered = menuCatalog.availableItems.where((item) {
       final matchesCategory = _category == 'All' || item.category == _category;
       final matchesQuery =
           query.isEmpty ||
@@ -770,10 +815,10 @@ class _DiscoverTabState extends State<_DiscoverTab> {
                   height: 38,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    itemCount: MenuItem.categories.length,
+                    itemCount: categories.length,
                     separatorBuilder: (_, _) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
-                      final category = MenuItem.categories[index];
+                      final category = categories[index];
                       final selected = category == _category;
                       return ChoiceChip(
                         label: Text(category),
@@ -1009,7 +1054,7 @@ class _OrderCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            items.isEmpty ? 'Your Nosh Bistro order' : items,
+            items.isEmpty ? '${StoreSettings.instance.appName} order' : items,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontWeight: FontWeight.w800),
@@ -1085,13 +1130,30 @@ class _ProfileTab extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      user?.displayName ?? 'Nosh guest',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
+                    if (user == null)
+                      const Text(
+                        'Nosh guest',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      )
+                    else
+                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(user.uid)
+                            .snapshots(),
+                        builder: (context, snapshot) => Text(
+                          snapshot.data?.data()?['displayName']?.toString() ??
+                              user.displayName ??
+                              'Nosh guest',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       ),
-                    ),
                     const SizedBox(height: 4),
                     Text(
                       email,
@@ -1164,11 +1226,6 @@ class _ProfileTab extends StatelessWidget {
   Future<void> _signOut(BuildContext context) async {
     try {
       await FirebaseAuth.instance.signOut();
-      if (!context.mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
-        (_) => false,
-      );
     } on FirebaseAuthException catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
